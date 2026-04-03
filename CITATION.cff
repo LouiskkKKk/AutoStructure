@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this, please cite it as below."
+authors:
+  - family-names: "Liu"
+    given-names: "Qizhen"
+  
+title: "AutoStructure: An automated pipeline for cryo-EM protein structure refinement"
+version: 1.0.0
+doi: "" 
+date-released: 2026-04-03
+url: "https://github.com/LouiskkKKk/AutoStructure"
+repository-code: "https://github.com/LouiskkKKk/AutoStructure"
+license: Apache-2.0
