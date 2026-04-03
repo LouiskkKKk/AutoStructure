@@ -1,0 +1,28 @@
+# AutoStructure Configuration
+
+tools:
+  chimerax: "chimerax"        # path to ChimeraX executable
+  phenix: "phenix.real_space_refine"  # path to Phenix real-space refine
+  coot: "coot"                # path to Coot executable
+
+fitmap:
+  resolution: 3.0             # EM map resolution in Angstroms
+  metric: "correlation"       # optimization metric: correlation | cam
+  max_steps: 2000             # maximum optimization steps
+
+secondary_structure:
+  min_helix_length: 4         # minimum residues to count as a helix piece
+  min_sheet_length: 3         # minimum residues to count as a beta-strand piece
+  loop_min_length: 3          # minimum loop length to be treated as a separate piece
+
+splitting:
+  overlap_residues: 2         # residues of overlap kept on each side of a piece boundary
+
+refinement:
+  nproc: 4                    # parallel processes for per-piece refinement
+  rigid_body_max_iterations: 50
+  morphing_weight: 1.0
+  coot_fit_protein: true      # use Coot fit-protein for disordered pieces (false → use Phenix morphing)
+
+output:
+  work_dir: "autostructure_output"  # all intermediate and final files go here
