@@ -72,8 +72,8 @@ def _run_phenix_real_space_refine(
         os.path.abspath(pdb_path),
         os.path.abspath(map_path),
         f"resolution={resolution}",
-        f"output.file_name_prefix={stem}",
-        f"output.directory={os.path.abspath(output_dir)}",
+        f"output.prefix={stem}",
+        f"output_dir={os.path.abspath(output_dir)}",
     ] + extra_args
 
     result = subprocess.run(
@@ -140,10 +140,9 @@ def rigid_body_refine(
     str  Path to the rigid-body refined PDB.
     """
     extra_args = [
-        "rigid_body=True",
-        "minimization_global=False",
-        "adp=False",
-        f"macro_cycles={max_iterations}",
+        "refinement.run=rigid_body",
+        f"refinement.max_iterations={max_iterations}",
+        "refinement.macro_cycles=1",
     ]
     return _run_phenix_real_space_refine(
         pdb_path=pdb_path,
@@ -183,12 +182,12 @@ def morphing_refine(
     -------
     str  Path to the morphing-refined PDB.
     """
+    # Keep arguments compatible with current phenix.real_space_refine PHIL.
+    # Older boolean shortcuts (e.g. adp=True) are ambiguous in recent versions.
     extra_args = [
-        "morphing=True",
-        "rigid_body=False",
-        "minimization_global=True",
-        "adp=True",
-        f"morphing_weight={morphing_weight}",
+        "refinement.run=morphing",
+        "refinement.max_iterations=100",
+        "refinement.macro_cycles=5",
     ]
     return _run_phenix_real_space_refine(
         pdb_path=pdb_path,

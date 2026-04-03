@@ -1,0 +1,233 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    AutoStructure Windows launcher script
+    
+.DESCRIPTION
+    One-command execution for AutoStructure on Windows.
+    Automatically detects or configures Python environment and runs the full pipeline.
+
+.PARAMETER PdbFile
+    Path to input PDB file (required)
+
+.PARAMETER MapFile
+    Path to EM density map file (required)
+
+.PARAMETER ConfigFile
+    Path to config YAML file (default: config.local.yaml)
+
+.PARAMETER OutputDir
+    Work directory for outputs (default: autostructure_output)
+
+.PARAMETER ChimeraXExe
+    Path to ChimeraX executable (auto-detect if omitted)
+
+.PARAMETER PhenixExe
+    Path to Phenix real_space_refine launcher (auto-detect if omitted)
+
+.PARAMETER CootExe
+    Path to Coot executable (auto-detect if omitted)
+
+.PARAMETER UsePhenixMorphing
+    Use Phenix morphing for loop refinement instead of Coot (default: $true for stability)
+
+.EXAMPLE
+    PS> .\run_windows.ps1 -PdbFile "E:\data\model.pdb" -MapFile "E:\data\map.mrc"
+
+.EXAMPLE
+    PS> .\run_windows.ps1 -PdbFile "E:\data\model.pdb" -MapFile "E:\data\map.mrc" `
+            -ConfigFile "config.custom.yaml" -OutputDir "custom_output"
+#>
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$PdbFile,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$MapFile,
+    
+    [string]$ConfigFile = "config.local.yaml",
+    [string]$OutputDir = "autostructure_output",
+    [string]$ChimeraXExe,
+    [string]$PhenixExe,
+    [string]$CootExe,
+    [bool]$UsePhenixMorphing = $true
+)
+
+function Test-FileExists {
+    param([string]$Path)
+    return (Test-Path -LiteralPath $Path -PathType Leaf)
+}
+
+function Find-Executable {
+    param([string]$Name, [string[]]$SearchPaths)
+    
+    foreach ($searchPath in $SearchPaths) {
+        $fullPath = Join-Path $searchPath $Name
+        if (Test-Path -LiteralPath $fullPath) {
+            return $fullPath
+        }
+    }
+    return $null
+}
+
+Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║        AutoStructure Windows Launcher                     ║" -ForegroundColor Cyan
+Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+
+# Validate input files
+Write-Host "[1] Validating input files..." -ForegroundColor Yellow
+if (-not (Test-FileExists $PdbFile)) {
+    Write-Host "  ✗ PDB file not found: $PdbFile" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  ✓ PDB: $PdbFile" -ForegroundColor Green
+
+if (-not (Test-FileExists $MapFile)) {
+    Write-Host "  ✗ Map file not found: $MapFile" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  ✓ Map: $MapFile" -ForegroundColor Green
+Write-Host ""
+
+# Auto-detect tools if not provided
+Write-Host "[2] Configuring tools..." -ForegroundColor Yellow
+
+if (-not $ChimeraXExe) {
+    $chimeraxPaths = @(
+        "D:\ChimeraX*\bin\ChimeraX-console.exe",
+        "C:\Program Files\ChimeraX*\bin\ChimeraX-console.exe"
+    )
+    foreach ($pattern in $chimeraxPaths) {
+        $found = @(Get-Item $pattern -ErrorAction SilentlyContinue)
+        if ($found.Count -gt 0) {
+            $ChimeraXExe = $found[-1].FullName
+            break
+        }
+    }
+    if (-not $ChimeraXExe) {
+        Write-Host "  ! ChimeraX not auto-detected. Please specify -ChimeraXExe" -ForegroundColor Yellow
+        Write-Host "    Expected at: D:\ChimeraX*\bin\ChimeraX-console.exe" -ForegroundColor Gray
+    }
+}
+if ($ChimeraXExe -and (Test-FileExists $ChimeraXExe)) {
+    Write-Host "  ✓ ChimeraX: $ChimeraXExe" -ForegroundColor Green
+}
+
+if (-not $PhenixExe) {
+    $phenixPaths = @(
+        "E:\Phenix\phenix_bin\phenix.real_space_refine.bat",
+        "C:\Phenix\phenix_bin\phenix.real_space_refine.bat"
+    )
+    foreach ($path in $phenixPaths) {
+        if (Test-FileExists $path) {
+            $PhenixExe = $path
+            break
+        }
+    }
+    if (-not $PhenixExe) {
+        Write-Host "  ! Phenix not auto-detected. Please specify -PhenixExe" -ForegroundColor Yellow
+        Write-Host "    Expected at: E:\Phenix\phenix_bin\phenix.real_space_refine.bat" -ForegroundColor Gray
+    }
+}
+if ($PhenixExe -and (Test-FileExists $PhenixExe)) {
+    Write-Host "  ✓ Phenix: $PhenixExe" -ForegroundColor Green
+}
+
+if (-not $CootExe) {
+    $cootPaths = @(
+        "E:\wincoot\bin\coot-bin.exe",
+        "C:\coot\bin\coot-bin.exe"
+    )
+    foreach ($path in $cootPaths) {
+        if (Test-FileExists $path) {
+            $CootExe = $path
+            break
+        }
+    }
+}
+if ($CootExe -and (Test-FileExists $CootExe)) {
+    Write-Host "  ✓ Coot: $CootExe" -ForegroundColor Green
+} else {
+    Write-Host "  ℹ Coot will not be used (morphing mode enabled)" -ForegroundColor Cyan
+}
+Write-Host ""
+
+# Create or update config file
+Write-Host "[3] Creating config file: $ConfigFile" -ForegroundColor Yellow
+$configContent = @"
+# AutoStructure Windows Configuration
+# Generated by run_windows.ps1
+
+tools:
+  chimerax: "$($ChimeraXExe -replace '\\', '/')"
+  phenix: "$($PhenixExe -replace '\\', '/')"
+  coot: "$($CootExe -replace '\\', '/')"
+
+fitmap:
+  resolution: 3.0
+  metric: "correlation"
+  max_steps: 2000
+
+secondary_structure:
+  min_helix_length: 4
+  min_sheet_length: 3
+  loop_min_length: 3
+
+refinement:
+  nproc: 1
+  coot_fit_protein: $(if ($UsePhenixMorphing) { "false" } else { "true" })
+
+output:
+  work_dir: "$OutputDir"
+"@
+
+Set-Content -Path $ConfigFile -Value $configContent -Encoding UTF8
+Write-Host "  ✓ Config created: $ConfigFile" -ForegroundColor Green
+Write-Host ""
+
+# Find Python executable
+Write-Host "[4] Setting up Python environment..." -ForegroundColor Yellow
+$venvPath = ".\.venv\Scripts\python.exe"
+if (Test-FileExists $venvPath) {
+    $pythonExe = $venvPath
+    Write-Host "  ✓ Virtual environment found: $venvPath" -ForegroundColor Green
+} else {
+    Write-Host "  ! Virtual environment not found at .\.venv" -ForegroundColor Yellow
+    Write-Host "    Attempting to use system Python..." -ForegroundColor Gray
+    $pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $pythonExe) {
+        Write-Host "  ✗ Python not found. Please create venv or ensure Python is in PATH" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  ✓ Using Python: $pythonExe" -ForegroundColor Green
+}
+Write-Host ""
+
+# Run pipeline
+Write-Host "[5] Running AutoStructure pipeline..." -ForegroundColor Yellow
+Write-Host "  Command: $pythonExe pipeline.py --pdb `"$PdbFile`" --map `"$MapFile`" --config $ConfigFile" -ForegroundColor Gray
+Write-Host ""
+
+& $pythonExe .\pipeline.py --pdb $PdbFile --map $MapFile --config $ConfigFile
+$exitCode = $LASTEXITCODE
+
+Write-Host ""
+if ($exitCode -eq 0) {
+    Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+    Write-Host "║  ✓ Pipeline completed successfully!                        ║" -ForegroundColor Green
+    Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+    
+    $outputFile = "$OutputDir\inmapfold_autostructure_refined.pdb"
+    if (Test-FileExists $outputFile) {
+        $fileSize = (Get-Item $outputFile).Length
+        Write-Host "  Output: $outputFile ($fileSize bytes)" -ForegroundColor Green
+    }
+} else {
+    Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+    Write-Host "║  ✗ Pipeline failed with exit code: $exitCode               ║" -ForegroundColor Red
+    Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+}
+
+exit $exitCode
