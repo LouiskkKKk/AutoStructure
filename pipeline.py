@@ -39,6 +39,7 @@ from coot_runner import fit_protein as coot_fit_protein
 from phenix_runner import morphing_refine, rigid_body_refine
 from piece_splitter import merge_pdbs, split_pdb
 from secondary_structure import get_pieces
+from validation_refine import run_auto_fix
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +57,7 @@ _DEFAULT_CONFIG = {
     "tools": {
         "chimerax": "chimerax",
         "phenix": "phenix.real_space_refine",
+        "phenix_molprobity": "phenix.molprobity",
         "coot": "coot",
     },
     "fitmap": {
@@ -76,6 +78,11 @@ _DEFAULT_CONFIG = {
         "rigid_body_max_iterations": 50,
         "morphing_weight": 1.0,
         "coot_fit_protein": True,
+    },
+    "auto_fix": {
+        "enabled": False,
+        "max_iterations": 10,
+        "window_half": 5,
     },
     "output": {
         "work_dir": "autostructure_output",
@@ -188,6 +195,7 @@ def run_pipeline(
     map_path: str,
     config_path: Optional[str] = None,
     output_path: Optional[str] = None,
+    auto_fix: Optional[bool] = None,
 ) -> str:
     """
     Run the full AutoStructure pipeline.
@@ -198,10 +206,11 @@ def run_pipeline(
     map_path    : experimental EM density map (MRC/CCP4)
     config_path : path to a YAML config file (optional; falls back to defaults)
     output_path : path for the final merged PDB  (optional; auto-generated if omitted)
+    auto_fix    : override the ``auto_fix.enabled`` config flag (None → use config)
 
     Returns
     -------
-    str  Path to the final refined and merged PDB.
+    str  Path to the final refined (and optionally auto-fixed) PDB.
     """
     cfg      = _load_config(config_path)
     work_dir = cfg["output"]["work_dir"]
@@ -210,6 +219,7 @@ def run_pipeline(
     ss_cfg   = cfg["secondary_structure"]
     split    = cfg["splitting"]
     nproc    = cfg["refinement"]["nproc"]
+    af_cfg   = cfg.get("auto_fix", {})
 
     Path(work_dir).mkdir(parents=True, exist_ok=True)
 
@@ -297,6 +307,30 @@ def run_pipeline(
 
     final_pdb = merge_pdbs(refined_pieces, output_path)
     log.info("Pipeline complete.  Final PDB: %s", final_pdb)
+
+    # ------------------------------------------------------------------
+    # Step 7 (optional) – Auto-fix: MolProbity validation + Coot RSR
+    # ------------------------------------------------------------------
+    do_auto_fix = auto_fix if auto_fix is not None else af_cfg.get("enabled", False)
+    if do_auto_fix:
+        log.info(
+            "Step 7: Auto-fix – Phenix MolProbity validation + Coot RSR (max %d iterations)",
+            af_cfg.get("max_iterations", 10),
+        )
+        auto_fix_dir = os.path.join(work_dir, "auto_fix")
+        fixed_pdb = run_auto_fix(
+            pdb_path=final_pdb,
+            map_path=map_path,
+            af2_pdb=pdb_path,
+            output_dir=auto_fix_dir,
+            phenix_molprobity_exe=tools.get("phenix_molprobity", "phenix.molprobity"),
+            coot_exe=tools["coot"],
+            max_iterations=af_cfg.get("max_iterations", 10),
+            window_half=af_cfg.get("window_half", 5),
+        )
+        log.info("Auto-fix complete.  Final PDB: %s", fixed_pdb)
+        return fixed_pdb
+
     return final_pdb
 
 
@@ -310,10 +344,24 @@ def _build_parser() -> argparse.ArgumentParser:
                     "using ChimeraX, Phenix, and Coot.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--pdb",    required=True,  help="Input PDB file (AlphaFold2 prediction)")
-    p.add_argument("--map",    required=True,  help="EM density map (MRC/CCP4)")
-    p.add_argument("--config", default=None,   help="Path to config.yaml")
-    p.add_argument("--output", default=None,   help="Output PDB path")
+    p.add_argument("--pdb",      required=True,  help="Input PDB file (AlphaFold2 prediction)")
+    p.add_argument("--map",      required=True,  help="EM density map (MRC/CCP4)")
+    p.add_argument("--config",   default=None,   help="Path to config.yaml")
+    p.add_argument("--output",   default=None,   help="Output PDB path")
+    p.add_argument(
+        "--auto-fix",
+        dest="auto_fix",
+        action="store_true",
+        default=None,
+        help="Enable post-pipeline Phenix MolProbity validation + Coot "
+             "real-space refine auto-fix loop (overrides config auto_fix.enabled).",
+    )
+    p.add_argument(
+        "--no-auto-fix",
+        dest="auto_fix",
+        action="store_false",
+        help="Disable the auto-fix loop even if config has auto_fix.enabled: true.",
+    )
     return p
 
 
@@ -324,5 +372,6 @@ if __name__ == "__main__":
         map_path=args.map,
         config_path=args.config,
         output_path=args.output,
+        auto_fix=args.auto_fix,
     )
     print(f"Done: {final}")
