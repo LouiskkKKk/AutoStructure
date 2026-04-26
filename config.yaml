@@ -3,6 +3,7 @@
 tools:
   chimerax: "chimerax"        # path to ChimeraX executable
   phenix: "phenix.real_space_refine"  # path to Phenix real-space refine
+  phenix_molprobity: "phenix.molprobity"  # path to Phenix MolProbity executable
   coot: "coot"                # path to Coot executable
 
 fitmap:
@@ -23,6 +24,12 @@ refinement:
   rigid_body_max_iterations: 50
   morphing_weight: 1.0
   coot_fit_protein: true      # use Coot fit-protein for disordered pieces (false → use Phenix morphing)
+
+auto_fix:
+  enabled: false              # set to true (or use --auto-fix CLI flag) to enable post-pipeline
+                              # MolProbity validation + Coot real-space refine loop
+  max_iterations: 10          # maximum number of validation→refine rounds
+  window_half: 5              # residues on each side of a problem site (total window ≤ 2*N+1)
 
 output:
   work_dir: "autostructure_output"  # all intermediate and final files go here
